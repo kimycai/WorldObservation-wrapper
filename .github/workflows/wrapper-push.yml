@@ -1,10 +1,10 @@
-name: Build wrapper & Push to wrapper-push (No Release)
-# 纯手动触发，无任何自动执行逻辑
+name: Build wrapper → Release → Push to wrapper-push
+# 纯手动触发，无自动执行逻辑
 on:
   workflow_dispatch:
 
 jobs:
-  build-and-push:
+  build-release-push:
     runs-on: ubuntu-24.04
     steps:
       # 步骤1：拉取wrapper源码（编译源仓库）
@@ -37,35 +37,63 @@ jobs:
           make -j$(nproc)
           # 为所有可执行文件添加执行权限，保留其他文件原始权限
           find . -type f -executable -exec chmod +x {} \;
-          # 递归列出产物，方便排查是否完整
+          # 递归列出产物，验证编译完整性
           ls -lhR .
 
-      # 步骤6：配置Git身份（推送仓库必备）
+      # 步骤6：打包build目录为zip压缩包（用于Release上传）
+      - name: Package build artifacts to zip
+        run: |
+          zip -r wrapper-build-$(date +%Y%m%d_%H%M%S).zip build/
+          # 验证压缩包生成，列出包信息
+          ls -lh *.zip
+          # 定义压缩包路径变量，供后续步骤调用
+          echo "RELEASE_ZIP=$(ls *.zip)" >> $GITHUB_ENV
+
+      # 步骤7：创建GitHub Release并上传压缩包（恢复Release功能）
+      - name: Create Release and upload zip package
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v$(date +%Y%m%d_%H%M%S)  # 自动生成时间戳标签，唯一标识Release
+          name: Wrapper Build Release $(date +%Y%m%d_%H%M%S)  # Release名称
+          body: "Automatically built wrapper artifacts, include all files in build directory."  # Release描述
+          files: ${{ env.RELEASE_ZIP }}  # 上传步骤6生成的zip压缩包
+          draft: false  # 非草稿，直接发布
+          prerelease: false  # 正式Release，非预发布
+
+      # 步骤8：解压Release压缩包到临时目录（获取原生文件）
+      - name: Unzip Release package to temp directory
+        run: |
+          mkdir -p temp-unzip
+          unzip -q ${{ env.RELEASE_ZIP }} -d temp-unzip/
+          # 验证解压结果，列出所有原生文件（与build目录一致）
+          ls -lhR temp-unzip/
+
+      # 步骤9：配置Git身份（推送wrapper-push仓库必备）
       - name: Configure Git identity
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
 
-      # 步骤7：拉取你的wrapper-push仓库（空仓库，产物目标仓库）
+      # 步骤10：拉取wrapper-push目标仓库（空仓库，用于接收解压后文件）
       - name: Checkout wrapper-push repository
         uses: actions/checkout@v4
         with:
-          repository: kimycai/wrapper-push  # 你的「用户名/新仓库名」，固定
+          repository: kimycai/wrapper-push  # 你的「用户名/仓库名」，固定
           ref: main                          # 推送到main分支
-          token: ${{ secrets.WRAPPER_PUSH_TOKEN }}  # 专属授权令牌
+          token: ${{ secrets.WRAPPER_PUSH_TOKEN }}  # 已配置的专属授权令牌
           path: wrapper-push                 # 隔离工作目录，无冲突
           fetch-depth: 1
 
-      # 步骤8：复制所有产物并推送到wrapper-push（无压缩，核心步骤）
-      - name: Copy all artifacts & push to wrapper-push
+      # 步骤11：复制解压后的所有原生文件到wrapper-push仓库并推送
+      - name: Copy unzipped files & push to wrapper-push
         run: |
-          # 递归复制build所有内容，-p保留权限/时间戳，无任何压缩
-          cp -rp build/* wrapper-push/
+          # 递归复制解压后的build所有内容，-p保留权限/时间戳，无压缩
+          cp -rp temp-unzip/build/* wrapper-push/
           cd wrapper-push
-          # 验证复制结果，确保产物完整
+          # 验证复制结果，确保所有原生文件完整
           ls -lhR .
           # 提交所有变更，无新修改则跳过（避免工作流报错）
           git add .
-          git commit -m "Update wrapper build artifacts $(date +%Y%m%d_%H%M%S)" || echo "No changes to commit"
+          git commit -m "Update from Release: unzipped all artifacts $(date +%Y%m%d_%H%M%S)" || echo "No changes to commit"
           # 推送到wrapper-push远程仓库
           git push origin main
