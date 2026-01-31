@@ -1,5 +1,5 @@
-name: Build wrapper & Push all to wrapper-push
-# 纯手动触发，无自动执行逻辑
+name: Build wrapper & Push to wrapper-push (No Release)
+# 纯手动触发，无任何自动执行逻辑
 on:
   workflow_dispatch:
 
@@ -7,66 +7,65 @@ jobs:
   build-and-push:
     runs-on: ubuntu-24.04
     steps:
-      # 步骤1：拉取原 wrapper 源码（待编译项目）
+      # 步骤1：拉取wrapper源码（编译源仓库）
       - name: Checkout wrapper source code
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      # 步骤2：安装原生构建工具依赖（1:1匹配原生命令）
+      # 步骤2：安装原生构建依赖（1:1匹配原生命令）
       - name: Install build tools
         run: |
           sudo apt update -y && sudo apt upgrade -y
           sudo apt install -y build-essential cmake wget unzip git
 
-      # 步骤3：安装LLVM（复用原生一键安装脚本）
+      # 步骤3：安装LLVM（复用原生一键脚本）
       - name: Install LLVM
         run: sudo bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)"
 
-      # 步骤4：下载并解压Android NDK r23b（静默操作，匹配原生路径）
+      # 步骤4：下载解压Android NDK r23b（静默操作，匹配原生路径）
       - name: Download & extract Android NDK r23b
         run: |
           wget -q -O android-ndk-r23b-linux.zip https://dl.google.com/android/repository/android-ndk-r23b-linux.zip
           unzip -q -d ~ android-ndk-r23b-linux.zip
 
-      # 步骤5：CMake+Make编译（保留所有产物，批量为可执行文件赋权）
-      - name: Build wrapper (cmake + make)
+      # 步骤5：CMake+Make编译（保留所有产物，批量赋权可执行文件）
+      - name: Build wrapper project
         run: |
           mkdir -p build && cd build
           cmake ..
           make -j$(nproc)
-          # 批量为build下所有可执行文件添加执行权限，保留其他文件原始权限
+          # 为所有可执行文件添加执行权限，保留其他文件原始权限
           find . -type f -executable -exec chmod +x {} \;
-          # 递归列出所有产物，方便排查是否完整
+          # 递归列出产物，方便排查是否完整
           ls -lhR .
 
-      # 步骤6：配置Git身份（推送仓库必备，固定配置）
+      # 步骤6：配置Git身份（推送仓库必备）
       - name: Configure Git identity
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
 
-      # 步骤7：拉取 wrapper-push 仓库（新的产物目标仓库，核心修改）
+      # 步骤7：拉取你的wrapper-push仓库（空仓库，产物目标仓库）
       - name: Checkout wrapper-push repository
         uses: actions/checkout@v4
         with:
-          repository: kimycai/wrapper-push  # 固定为你的「用户名/wrapper-push」
-          ref: main                          # 推送到仓库的main分支
-          token: ${{ secrets.WRAPPER_PUSH_TOKEN }}  # 新的专属授权令牌
-          path: wrapper-push                 # 与原项目隔离的工作目录
+          repository: kimycai/wrapper-push  # 你的「用户名/新仓库名」，固定
+          ref: main                          # 推送到main分支
+          token: ${{ secrets.WRAPPER_PUSH_TOKEN }}  # 专属授权令牌
+          path: wrapper-push                 # 隔离工作目录，无冲突
           fetch-depth: 1
 
-      # 步骤8：复制所有产物并推送到 wrapper-push（无压缩，完整保留结构）
+      # 步骤8：复制所有产物并推送到wrapper-push（无压缩，核心步骤）
       - name: Copy all artifacts & push to wrapper-push
         run: |
-          # 核心：递归复制build所有内容，-p保留权限/时间戳，无压缩无修改
+          # 递归复制build所有内容，-p保留权限/时间戳，无任何压缩
           cp -rp build/* wrapper-push/
-          # 进入目标仓库目录
           cd wrapper-push
-          # 验证复制结果，递归列出所有文件/目录
+          # 验证复制结果，确保产物完整
           ls -lhR .
-          # 提交所有变更（无新修改则跳过，避免工作流报错）
+          # 提交所有变更，无新修改则跳过（避免工作流报错）
           git add .
-          git commit -m "Update all wrapper artifacts $(date +%Y%m%d_%H%M%S)" || echo "No changes to commit"
-          # 推送到 wrapper-push 远程仓库
+          git commit -m "Update wrapper build artifacts $(date +%Y%m%d_%H%M%S)" || echo "No changes to commit"
+          # 推送到wrapper-push远程仓库
           git push origin main
