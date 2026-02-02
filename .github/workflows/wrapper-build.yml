@@ -1,5 +1,4 @@
-name: Build wrapper (Manual - Artifact: wrapper)
-# 纯手动触发，无自动执行逻辑
+name: aaaaBuild wrapper
 on:
   workflow_dispatch:
 
