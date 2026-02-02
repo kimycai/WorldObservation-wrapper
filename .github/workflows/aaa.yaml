@@ -51,9 +51,4 @@ jobs:
           cd wrapper/build
           make -j$(nproc)
 
-      # 核心修改：仅上传 wrapper 单个可执行文件（精准路径）
-      - name: Upload only wrapper executable file
-        uses: actions/upload-artifact@v4
-        with:
-          name: wrapper-executable-ubuntu2404  # 产物名明确为可执行文件
-          path: wrapper/build/wrapper          # 仅指定 wrapper 可执行文件路径（非整目录）
+
