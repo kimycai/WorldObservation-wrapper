@@ -4,12 +4,24 @@ on:
 
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        path: wrapper-main
+
+    - name: Checkout wrapper-wsl-ubuntu repository
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ secrets.TARGET_REPO }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        path: wrapper-wsl-ubuntu
 
     - name: Enable WSL and install Ubuntu
       run: |
@@ -35,30 +47,38 @@ jobs:
 
     - name: Build project in WSL
       run: |
+        cd wrapper-main
         wsl mkdir -p build
         wsl bash -c "cd build && cmake .. && make -j$(nproc)"
 
-    - name: Create wsl-ubuntu directory if not exists
-      run: |
-        if (!(Test-Path -Path "wsl-ubuntu" -PathType Container)) {
-          New-Item -ItemType Directory -Path "wsl-ubuntu" -Force
-        }
-
-    - name: Copy all build artifacts to wsl-ubuntu directory
+    - name: Copy all build artifacts to wrapper-wsl-ubuntu directory
       run: |
         # Copy wrapper executable
-        if (Test-Path -Path "wrapper" -PathType Leaf) {
-          Copy-Item -Path "wrapper" -Destination "wsl-ubuntu\" -Force
+        if (Test-Path -Path "wrapper-main\wrapper" -PathType Leaf) {
+          Copy-Item -Path "wrapper-main\wrapper" -Destination "wrapper-wsl-ubuntu\" -Force
         }
         # Copy entire rootfs directory
-        if (Test-Path -Path "rootfs" -PathType Container) {
-          Copy-Item -Path "rootfs" -Destination "wsl-ubuntu\" -Recurse -Force
+        if (Test-Path -Path "wrapper-main\rootfs" -PathType Container) {
+          Copy-Item -Path "wrapper-main\rootfs" -Destination "wrapper-wsl-ubuntu\" -Recurse -Force
         }
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: wrapper-binaries-wsl
-        path: |
-          wsl-ubuntu/
-        retention-days: 7
+    - name: Configure Git for wrapper-wsl-ubuntu repository
+      run: |
+        cd wrapper-wsl-ubuntu
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+
+    - name: Commit and push to wrapper-wsl-ubuntu repository
+      run: |
+        cd wrapper-wsl-ubuntu
+        # Check if there are any changes to commit
+        if ((git status --porcelain | Measure-Object).Count -gt 0) {
+          # Add all changes
+          git add .
+          # Commit changes
+          git commit -m "Build: Update wrapper-wsl-ubuntu directory with latest build artifacts [skip ci]"
+          # Push to repository
+          git push origin HEAD:main
+        } else {
+          Write-Host "No changes to commit"
+        }
