@@ -1,0 +1,66 @@
+name: Build wrapper on WSL
+
+on:
+
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Enable WSL and install Ubuntu
+      run: |
+        wsl --install -d Ubuntu --no-launch
+        wsl --set-default Ubuntu
+        # Wait for WSL to be ready
+        Start-Sleep -Seconds 10
+
+    - name: Update WSL Ubuntu and install dependencies
+      run: |
+        wsl -u root apt update
+        wsl -u root apt upgrade -y
+        wsl -u root apt install -y build-essential cmake wget unzip git
+
+    - name: Install LLVM in WSL
+      run: |
+        wsl -u root bash -c "wget -O - https://apt.llvm.org/llvm.sh | bash"
+
+    - name: Download and install Android NDK in WSL
+      run: |
+        wsl wget -O android-ndk-r23b-linux.zip https://dl.google.com/android/repository/android-ndk-r23b-linux.zip
+        wsl unzip -q -d ~ android-ndk-r23b-linux.zip
+
+    - name: Build project in WSL
+      run: |
+        wsl mkdir -p build
+        wsl bash -c "cd build && cmake .. && make -j$(nproc)"
+
+    - name: Create wsl directory if not exists
+      run: |
+        if (!(Test-Path -Path "wsl" -PathType Container)) {
+          New-Item -ItemType Directory -Path "wsl" -Force
+        }
+
+    - name: Copy build artifacts to wsl directory
+      run: |
+        # Copy wrapper executable
+        if (Test-Path -Path "wrapper" -PathType Leaf) {
+          Copy-Item -Path "wrapper" -Destination "wsl\" -Force
+        }
+        # Copy files from rootfs/system/bin/
+        if (Test-Path -Path "rootfs/system/bin" -PathType Container) {
+          Get-ChildItem -Path "rootfs/system/bin" -File | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination "wsl\" -Force
+          }
+        }
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: wrapper-binaries-wsl
+        path: |
+          wsl/
+        retention-days: 7
