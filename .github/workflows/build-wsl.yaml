@@ -38,23 +38,21 @@ jobs:
         wsl mkdir -p build
         wsl bash -c "cd build && cmake .. && make -j$(nproc)"
 
-    - name: Create wsl directory if not exists
+    - name: Create wsl-ubuntu directory if not exists
       run: |
-        if (!(Test-Path -Path "wsl" -PathType Container)) {
-          New-Item -ItemType Directory -Path "wsl" -Force
+        if (!(Test-Path -Path "wsl-ubuntu" -PathType Container)) {
+          New-Item -ItemType Directory -Path "wsl-ubuntu" -Force
         }
 
-    - name: Copy build artifacts to wsl directory
+    - name: Copy all build artifacts to wsl-ubuntu directory
       run: |
         # Copy wrapper executable
         if (Test-Path -Path "wrapper" -PathType Leaf) {
-          Copy-Item -Path "wrapper" -Destination "wsl\" -Force
+          Copy-Item -Path "wrapper" -Destination "wsl-ubuntu\" -Force
         }
-        # Copy files from rootfs/system/bin/
-        if (Test-Path -Path "rootfs/system/bin" -PathType Container) {
-          Get-ChildItem -Path "rootfs/system/bin" -File | ForEach-Object {
-            Copy-Item -Path $_.FullName -Destination "wsl\" -Force
-          }
+        # Copy entire rootfs directory
+        if (Test-Path -Path "rootfs" -PathType Container) {
+          Copy-Item -Path "rootfs" -Destination "wsl-ubuntu\" -Recurse -Force
         }
 
     - name: Upload artifacts
@@ -62,5 +60,5 @@ jobs:
       with:
         name: wrapper-binaries-wsl
         path: |
-          wsl/
+          wsl-ubuntu/
         retention-days: 7
